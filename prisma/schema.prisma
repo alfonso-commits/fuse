@@ -1,0 +1,86 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Visitor {
+  id                String    @id @default(cuid())
+  anonymousId       String    @unique @map("anonymous_id")
+  email             String?
+  name              String?
+  company           String?
+  firstTouchChannel String?   @map("first_touch_channel")
+  lastTouchChannel  String?   @map("last_touch_channel")
+  firstSeenAt       DateTime  @default(now()) @map("first_seen_at")
+  lastSeenAt        DateTime  @default(now()) @map("last_seen_at")
+  landingPage       String?   @map("landing_page")
+  referrer          String?
+  hubspotContactId  String?   @map("hubspot_contact_id")
+  sessions          Session[]
+  events            Event[]
+  createdAt         DateTime  @default(now()) @map("created_at")
+  updatedAt         DateTime  @updatedAt @map("updated_at")
+
+  @@index([email])
+  @@index([firstTouchChannel])
+  @@index([lastSeenAt])
+  @@map("visitors")
+}
+
+model Session {
+  id          String   @id @default(cuid())
+  visitorId   String   @map("visitor_id")
+  visitor     Visitor  @relation(fields: [visitorId], references: [id])
+  startedAt   DateTime @default(now()) @map("started_at")
+  referrer    String?
+  utmSource   String?  @map("utm_source")
+  utmMedium   String?  @map("utm_medium")
+  utmCampaign String?  @map("utm_campaign")
+  utmContent  String?  @map("utm_content")
+  utmTerm     String?  @map("utm_term")
+  channel     String?
+  landingPage String?  @map("landing_page")
+  events      Event[]
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@index([visitorId])
+  @@index([channel])
+  @@index([startedAt])
+  @@map("sessions")
+}
+
+model Event {
+  id          String   @id @default(cuid())
+  visitorId   String   @map("visitor_id")
+  visitor     Visitor  @relation(fields: [visitorId], references: [id])
+  sessionId   String   @map("session_id")
+  session     Session  @relation(fields: [sessionId], references: [id])
+  type        String
+  pageUrl     String?  @map("page_url")
+  pageTitle   String?  @map("page_title")
+  elementId   String?  @map("element_id")
+  elementText String?  @map("element_text")
+  elementHref String?  @map("element_href")
+  metadata    Json?
+  timestamp   DateTime @default(now())
+
+  @@index([visitorId])
+  @@index([sessionId])
+  @@index([type])
+  @@index([timestamp])
+  @@map("events")
+}
+
+model Channel {
+  id          String  @id @default(cuid())
+  name        String  @unique
+  slug        String  @unique
+  type        String
+  description String?
+
+  @@map("channels")
+}
