@@ -153,7 +153,11 @@ function syncPocPipeline() {
       ]);
     });
 
-    // ── 8. Write to sheet ──
+    // ── 8. Enrich missing LinkedIn URLs via Apollo ──
+    ss.toast('Enriching ' + rows.length + ' contacts via Apollo...', 'POC Sync');
+    rows = enrichPocWithApollo(rows);
+
+    // ── 9. Write to sheet ──
     ss.toast('Writing ' + rows.length + ' contacts to sheet...', 'POC Sync');
     writePocSheet(rows);
 
@@ -218,6 +222,86 @@ function fetchContactsByIds(contactIds, propertyNames) {
   }
 
   return map;
+}
+
+// ── Enrich POCs with Apollo (LinkedIn URLs + email) ─────────
+// Matches contacts by email via Apollo bulk_match.
+// Costs 1 Apollo credit per contact. Only enriches rows that have
+// an email and are missing a LinkedIn URL.
+// Row format: [First Name, Last Name, Title, Email, Company, LinkedIn URL]
+function enrichPocWithApollo(rows) {
+  var REVEAL_BATCH = 10; // Apollo bulk_match limit per call
+
+  // Collect indices of rows that need enrichment (have email, missing LinkedIn)
+  var needEnrich = [];
+  rows.forEach(function(row, idx) {
+    if (row[3] && !row[5]) { // has email, no LinkedIn URL
+      needEnrich.push(idx);
+    }
+  });
+
+  if (needEnrich.length === 0) {
+    console.log('[POC Apollo] All contacts already have LinkedIn URLs or no emails to match.');
+    return rows;
+  }
+
+  console.log('[POC Apollo] Enriching ' + needEnrich.length + ' contacts via Apollo...');
+  var chunks = chunkArray(needEnrich, REVEAL_BATCH);
+
+  chunks.forEach(function(chunk, ci) {
+    SpreadsheetApp.getActiveSpreadsheet().toast(
+      'Apollo enrichment: batch ' + (ci + 1) + '/' + chunks.length + '...',
+      'POC Sync'
+    );
+
+    var body = {
+      reveal_personal_emails: true,
+      details: chunk.map(function(idx) {
+        return { email: rows[idx][3] };
+      })
+    };
+
+    var resp = UrlFetchApp.fetch(APOLLO_BASE + '/people/bulk_match', {
+      method:          'post',
+      contentType:     'application/json',
+      headers:         { 'X-Api-Key': APOLLO_API_KEY },
+      payload:         JSON.stringify(body),
+      muteHttpExceptions: true
+    });
+
+    var code = resp.getResponseCode();
+    if (code !== 200) {
+      console.error('[POC Apollo] Error ' + code + ': ' + resp.getContentText().substring(0, 200));
+      Utilities.sleep(500);
+      return; // skip this batch, keep HubSpot data as-is
+    }
+
+    var data    = JSON.parse(resp.getContentText());
+    var matches = data.matches || data.people || [];
+
+    // matches array is in the same order as the details array
+    chunk.forEach(function(rowIdx, i) {
+      var match = matches[i];
+      if (!match) return;
+
+      // Fill LinkedIn URL if Apollo has it
+      if (match.linkedin_url) {
+        rows[rowIdx][5] = match.linkedin_url;
+      }
+      // Optionally fill title if HubSpot had it blank
+      if (!rows[rowIdx][2] && match.title) {
+        rows[rowIdx][2] = match.title;
+      }
+    });
+
+    Utilities.sleep(600);
+  });
+
+  var enrichedCount = 0;
+  needEnrich.forEach(function(idx) { if (rows[idx][5]) enrichedCount++; });
+  console.log('[POC Apollo] Enriched ' + enrichedCount + '/' + needEnrich.length + ' with LinkedIn URLs.');
+
+  return rows;
 }
 
 // ── Write to "POCs: Active Pipeline" sheet ──────────────────
