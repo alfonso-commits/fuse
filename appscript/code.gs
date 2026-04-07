@@ -83,6 +83,7 @@ function onOpen() {
       .addItem('Companies: Active Pipeline',  'syncActivePipeline')
       .addItem('POCs: Active Pipeline',       'syncPocPipeline')
       .addItem('Contacts: Active Pipeline',   'syncApolloContacts')
+      .addItem('Exclusion List',              'syncExclusionList')
       .addItem('Debug',                       'debugApollo')
       .addToUi();
   } catch (e) {
